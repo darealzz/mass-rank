@@ -1,21 +1,148 @@
-from datetime import datetime
-import requests
+import asyncio
+import multiprocessing
+import numpy
+import random
+import json
 import sys
+import readchar
+import time
+import marshal
+import pickle
 
-cookie = '_|WARNING:-DO-NOT-SHARE-THIS.--Sharing-this-will-allow-someone-to-log-in-as-you-and-to-steal-your-ROBUX-and-items.|_446FC9DDF137D6D7B9296D70CF8D466894C7453EEE63B65B5BEB66985EE27278F8598310D834CCA43ECEB0072B0511F01DA3A651783785D335EF43B14C66ADA8CDDCEA68CA4BCD44EDA3D722A1D6D758B5915C913F625D481802EFD3D8998722352A60C188CB352854196EA1D1065B4F0641AF391B22BD533F45834D1283DA723116B3048C7464FC72710178D9245A05644211FFDF0C64342A6B9C0AAF10B79C709FF3BB6B4444AED4A4958F2A01DF462F7799EB2D5E3E73B3240F5C2A2EA3A0C9998B284CF9D34766F6671C5427BC1387DE4B3978D12479301D833E701548DFAB13E06F481D31AADB4F2E3EC8575C36AB788ADF16A41470694DDD11FD696E4AEAE568930179A6EF423C4942C1425F0152C7645820FCF24F47120B4E8B20594CB7A0377E8484C504DDECDFC773F2D5EB921DA461ED8D2F39BA1232960F6AC63548B88DF89E74E2C3DEEF7497E7670D640551030E'
+import threading
 
-while True:
-    ct = datetime.now().strftime('%H')
-    if ct == 6:
+import roblox
+from roblox import Client
+from queue import Queue
+import concurrent.futures as cf#import ThreadPoolExecutor, as_completed
 
-        cookies = {
-            '.ROBLOSECURITY': cookie
-        }
-        request = requests.patch('https://groups.roblox.com/v1/groups/6760741/users/1079054514', 
-        cookies={'.ROBLOSECURITY': cookie}, 
-        data={'roleId': 43160349},
-        headers={'X-CSRF-TOKEN': requests.post(url=f'https://auth.roblox.com/v1/logout', cookies=cookies).headers['x-csrf-token']}
+from utils import Colors
+from utils import Style, Back
+from utils import Textual
+from utils import Auth
+from utils import AuthCookie
+
+
+class App:
+    def __init__(self, **kwargs):
+        self.client = kwargs['client']
+        self._group = kwargs['group']
+        self._exceptions = kwargs['exceptions']
+        self.client_rank = None
+        self._members = []
+        self._scrambled = {}
+        self.mcnt = 0
+    
+    async def init_core(self):
+        Textual.log('Loading Group...', type=Colors.information())
+        self._group = await self.client.get_group(self._group)
+
+        client_partial = await self.client.get_authenticated_user()
+        self.client_rank = await self._group.get_member_rank(client_partial.id)
+
+        roles = await self._group.get_roles()
+        for role in roles:
+            if role.name == self.client_rank.name or role.name == '[LCPL] Lance Corporal':
+                break
+            if role.name == 'Guest':
+                continue
+            self._scrambled[role.id] = [[], role]
+            self.mcnt += role.member_count
+
+        Textual.del_lines(1)
+        Textual.log(f'Fetched Group Object for {Back.GREEN}{self._group.name}', type=Colors.information())
+        
+    async def get_group_members(self):
+        members = self._group.get_members(page_size=100, sort_order=roblox.utilities.iterators.SortOrder.Descending)
+        Textual.log(f'Loading Member Objects...', type=Colors.information())
+        it_n = 0
+        async for page in members.pages():
+            for member in page:
+                if member.role.rank < self.client_rank.rank and member.name not in self._exceptions:
+                    Textual.del_lines(1)
+                    it_n += 1
+                    self._members.append(member)
+                    Textual.log(f'Initialising Member Object {Back.MAGENTA}{round((it_n/self.mcnt) * 100)}%{Back.RESET} {Back.RED}{"".join(member.role.name.split("]")[0])}] {member.name.upper()}{Back.RESET}', type=Colors.information())
+
+        Textual.del_lines(1)
+        Textual.log(f'Initialised {Back.GREEN}{len(self._members)}{Back.RESET} Member Objects', type=Colors.information())
+
+    async def batch_scramble(self):
+        Textual.log(f'Scrambling Objects Into Batches...', type=Colors.information())
+        random.shuffle(self._members)
+        keys = [*self._scrambled]
+        _scrambled = numpy.array_split(self._members, len(keys))
+        itr_v = -1
+        for lst in _scrambled:
+            itr_v += 1
+            try:
+                self._scrambled[keys[itr_v]][0] = list(lst).remove('r')
+            except:
+                self._scrambled[keys[itr_v]][0] = list(lst)
+
+            Textual.del_lines(1)
+            Textual.log(f'Scrambling Objects Into Batches {Back.MAGENTA}{round(itr_v/len(keys) * 100)}%', type=Colors.information())
+            await asyncio.sleep(1)
+
+        Textual.del_lines(1)
+        Textual.log(f'Scrambled Objects Into {Back.GREEN}{len(keys)}{Back.RESET} Batches', type=Colors.information())
+
+    async def conf_dump(self):
+        Textual.log(f'Press Any Key To Begin Admin Abuse...', type=Colors.information())
+        readchar.readchar()
+        Textual.del_lines(1)
+
+    async def mass_dump(self):
+        Textual.log(f'Beginning Mass Rank Dump...', type=Colors.information())
+        keys = [*self._scrambled]
+
+        async def internal(*args):
+            itr_v = -1
+            _futures = []
+            for obj in self._scrambled[args[0]][0]:
+                itr_v += 1
+                Textual.del_lines(1)
+                Textual.log(f'Begun Mass Rank Dump {Back.MAGENTA}Batch {args[1]}/{len(args[2])}{Back.RESET} {Back.YELLOW}{round(itr_v/len(self._scrambled[args[0]][0]) * 100)}%{Back.RESET} {Back.RED}[{obj.role.name}] {obj.name.upper()} >>> {self._scrambled[batch][1].name}{Back.RESET}', type=Colors.information())
+                task = asyncio.ensure_future(obj.set_role(args[0]))
+                _futures.append(task)
+            await asyncio.gather(*_futures)
+            
+        _tick = time.perf_counter()
+        itr_bat = 0
+        futures = []
+        # print(keys)
+        # await asyncio.sleep(20)
+        for batch in keys:
+            itr_bat += 1
+            task = asyncio.ensure_future(internal(batch, itr_bat, keys))
+            futures.append(task)
+
+        Textual.log(f'Waiting for futures...', type=Colors.information())
+        # await asyncio.gather(*futures)
+        tick = round(time.perf_counter() - _tick, 2)
+        Textual.del_lines(5)
+        Textual.log(f'Completed Admin Abuse for {Back.GREEN}{self._group.name}{Back.RESET}', type=Colors.information())
+        Textual.log(f'Ranked {Back.MAGENTA}{len(self._members)} Users{Back.RESET}', type=Colors.information())
+        Textual.log(f'Through {Back.MAGENTA}{len(keys)} Batches{Back.RESET}', type=Colors.information())
+        Textual.log(f'Completed in {Back.YELLOW}{tick} Seconds{Back.RESET}', type=Colors.information())
+
+
+if __name__ == '__main__':
+
+    loop = asyncio.get_event_loop()
+    auth = Auth(Client(), product_name='Test', hub_id='fvOu062RQw')
+    _client = AuthCookie()
+
+    app = App(
+        client=_client.client,
+        # group=13183519,
+        group=11908206,
+        exceptions=['RescueHolder', '1vs_4w', 'Justinkiller1221']
         )
-        print('[+] Ranked the guy')
-        print(f'[+] {ct}')
-        break
+
+    loop.run_until_complete(app.init_core())
+    loop.run_until_complete(app.get_group_members())
+    loop.run_until_complete(app.batch_scramble())
+    loop.run_until_complete(app.conf_dump())
+    loop.run_until_complete(app.mass_dump())
+
